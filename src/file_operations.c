@@ -14,52 +14,79 @@
   * Transfer reports from upload directory to dashboard directory
   * @return SUCCESS on success, FAILURE on error
   */
+/**
+ * Transfer reports from upload directory to dashboard directory
+ * @return SUCCESS on success, FAILURE on error
+ */
  int transfer_reports(void) {
-     DIR *dir;
-     struct dirent *entry;
-     char src_path[MAX_PATH_LENGTH];
-     char dest_path[MAX_PATH_LENGTH];
-     int result = SUCCESS;
-     
-     log_operation("Starting report transfer from upload to dashboard");
-     
-     /* Open the upload directory */
-     dir = opendir(UPLOAD_DIR);
-     if (dir == NULL) {
-         log_error("Failed to open upload directory: %s", strerror(errno));
-         return FAILURE;
-     }
-     
-     /* Process each file in the directory */
-     while ((entry = readdir(dir)) != NULL) {
-         /* Skip directory entries and non-XML files */
-         if (entry->d_type == DT_DIR || 
-             strstr(entry->d_name, REPORT_EXTENSION) == NULL) {
-             continue;
-         }
-         
-         /* Construct source and destination paths */
-         snprintf(src_path, MAX_PATH_LENGTH, "%s/%s", UPLOAD_DIR, entry->d_name);
-         snprintf(dest_path, MAX_PATH_LENGTH, "%s/%s", DASHBOARD_DIR, entry->d_name);
-         
-         /* Move the file */
-         log_operation("Moving file: %s to %s", entry->d_name, DASHBOARD_DIR);
-         if (move_file(src_path, dest_path) != SUCCESS) {
-             log_error("Failed to move file %s to dashboard", entry->d_name);
-             result = FAILURE;
-             continue;
-         }
-         
-         /* Log the transfer operation */
-         char owner[MAX_USER_LENGTH];
-         if (get_file_owner(dest_path, owner, MAX_USER_LENGTH) == SUCCESS) {
-             log_file_change(owner, entry->d_name, "transfer");
-         }
-     }
-     
-     closedir(dir);
-     return result;
- }
+    int result = SUCCESS;
+    int found_files = 0;
+    const char* departments[] = {
+        "Warehouse", "Manufacturing", "Sales", "Distribution"
+    };
+    int num_departments = 4;
+    
+    log_operation("Starting report transfer from upload to dashboard");
+    
+    // Process each department directory
+    for (int i = 0; i < num_departments; i++) {
+        DIR *dir;
+        struct dirent *entry;
+        char dept_path[MAX_PATH_LENGTH];
+        
+        // Construct department path
+        snprintf(dept_path, MAX_PATH_LENGTH, "%s/%s", UPLOAD_DIR, departments[i]);
+        
+        // Open the department directory
+        dir = opendir(dept_path);
+        if (dir == NULL) {
+            log_error("Failed to open department directory %s: %s", 
+                     dept_path, strerror(errno));
+            continue;  // Try the next department
+        }
+        
+        // Process each file in the department directory
+        while ((entry = readdir(dir)) != NULL) {
+            // Skip directory entries and non-XML files
+            if (entry->d_type == DT_DIR || 
+                strstr(entry->d_name, REPORT_EXTENSION) == NULL) {
+                continue;
+            }
+            
+            // Construct source and destination paths
+            char src_path[MAX_PATH_LENGTH];
+            char dest_path[MAX_PATH_LENGTH];
+            snprintf(src_path, MAX_PATH_LENGTH, "%s/%s", dept_path, entry->d_name);
+            snprintf(dest_path, MAX_PATH_LENGTH, "%s/%s", DASHBOARD_DIR, entry->d_name);
+            
+            // Move the file
+            log_operation("Moving file: %s to %s", entry->d_name, DASHBOARD_DIR);
+            if (copy_file(src_path, dest_path) != SUCCESS) {
+                log_error("Failed to move file %s to dashboard", entry->d_name);
+                result = FAILURE;
+                continue;
+            }
+            
+            found_files++;
+            
+            // Log the transfer operation
+            char owner[MAX_USER_LENGTH];
+            if (get_file_owner(dest_path, owner, MAX_USER_LENGTH) == SUCCESS) {
+                log_file_change(owner, entry->d_name, "transfer");
+            }
+        }
+        
+        closedir(dir);
+    }
+    
+    if (found_files == 0) {
+        log_operation("No files found to transfer");
+    } else {
+        log_operation("Transferred %d files successfully", found_files);
+    }
+    
+    return result;
+}
  
  /**
   * Check for missing department reports
